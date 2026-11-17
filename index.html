@@ -43,10 +43,19 @@ button:disabled{opacity:.45}
 textarea{width:100%;height:150px;font:14px monospace;padding:8px;border:1px solid var(--line);border-radius:8px}
 .empty{color:var(--mute);text-align:center;padding:14px 0}
 a.btnlink{display:block;text-align:center;text-decoration:none;font-weight:600;border-radius:10px;padding:12px;background:#e6ecf1;color:var(--ink)}
+.tabs{display:flex;gap:6px;margin:0 0 12px}
+.tabs button{flex:1;background:#e6ecf1;color:var(--ink)}
+.tabs button.on{background:var(--brand);color:#fff}
+.loc{display:inline-block;font-weight:800;font-size:20px;background:#e8f5ee;color:var(--ok);border-radius:8px;padding:4px 10px;margin-top:4px;letter-spacing:.3px}
+.loc.none{background:#fbe9e7;color:var(--bad);font-size:15px}
+.brow{display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-top:1px solid var(--line)}
+.brow:first-child{border-top:0}
 </style>
 </head>
 <body>
 <h1>Supply Pull List</h1>
+<div class="tabs"><button id="t1" class="on">Pull List</button><button id="t2">Breakout</button></div>
+<div id="tab-pull">
 
 <div class="card">
   <label for="loc">Location (becomes the list title and email subject)</label>
@@ -81,7 +90,24 @@ a.btnlink{display:block;text-align:center;text-decoration:none;font-weight:600;b
 
 <div class="card"><button class="sec" id="newlist" style="width:100%">New List</button><div id="confirmNew"></div></div>
 
-<div class="bar"><button id="barcopy">Copy list</button><button class="sec" id="barmail">Email</button></div>
+</div>
+<div id="tab-break" style="display:none">
+  <div class="card">
+    <label for="bq">Search what's on the box: IMF, part number, vendor number, or description</label>
+    <input id="bq" type="search" placeholder="Type anything..." autocomplete="off" inputmode="search">
+    <div id="bres"></div>
+  </div>
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px"><strong>Put-away list</strong><span class="sub" id="bcount"></span></div>
+    <div class="sub" style="margin-bottom:4px">Tap a result to add it. The list is sorted by location so you can walk the warehouse in order.</div>
+    <div id="blist"></div>
+  </div>
+  <div class="card">
+    <div class="row"><button class="sec" id="bcopy">Copy list</button><button class="sec" id="bclear">Clear list</button></div>
+    <div id="bconfirm"></div><div id="bfallback"></div>
+  </div>
+</div>
+<div class="bar" id="mainbar"><button id="barcopy">Copy list</button><button class="sec" id="barmail">Email</button></div>
 <div class="toast" id="toast"></div>
 
 <script>
@@ -96,18 +122,15 @@ const compact=s=>String(s).toLowerCase().replace(/[^a-z0-9]/g,'');
 function toast(m){const t=$('toast');t.textContent=m;t.style.display='block';clearTimeout(toast.t);toast.t=setTimeout(()=>t.style.display='none',1800)}
 
 fetch('items.json').then(r=>r.json()).then(d=>{
-  ITEMS=d.map(r=>({imf:r[0],desc:r[1],mpn:r[2],vsn:r[3],nsn:r[4],
+  ITEMS=d.map(r=>({imf:r[0],desc:r[1],mpn:r[2],vsn:r[3],nsn:r[4],loc:r[5],
     nd:norm(r[1]),keys:[compact(r[0]),compact(r[2]),compact(r[3]),compact(r[4])]}));
-  search();
+  search();if(typeof bsearch==='function')bsearch();
 }).catch(()=>{$('results').innerHTML='<div class="warn">Could not load the item list. Check your connection and reload.</div>'});
 
 function today(){return new Date().toLocaleDateString('en-US',{month:'long',day:'numeric'})}
 function title(){return (state.loc.trim()||'(no location)')+', '+today()}
 
-function search(){
-  const raw=$('q').value.trim(); const box=$('results'); $('pick').innerHTML='';
-  if(!raw){box.innerHTML='';return}
-  if(!ITEMS.length){box.innerHTML='<div class="sub">Loading item list...</div>';return}
+function find(raw){
   const words=norm(raw).split(' ').filter(Boolean), c=compact(raw);
   const scored=[];
   for(const it of ITEMS){
@@ -120,6 +143,13 @@ function search(){
     if(s) scored.push([s,it]);
   }
   scored.sort((a,b)=>b[0]-a[0]);
+  return scored;
+}
+function search(){
+  const raw=$('q').value.trim(); const box=$('results'); $('pick').innerHTML='';
+  if(!raw){box.innerHTML='';return}
+  if(!ITEMS.length){box.innerHTML='<div class="sub">Loading item list...</div>';return}
+  const scored=find(raw);
   const top=scored.slice(0,8);
   if(!top.length){
     box.innerHTML='<div class="warn"><strong>No match found.</strong><div class="sub">Check the number, or add it as a custom item.</div><button style="margin-top:8px" id="cust">Add as custom item</button></div>';
@@ -212,6 +242,56 @@ $('newlist').onclick=()=>{
   $('n0').onclick=()=>{$('confirmNew').innerHTML=''};
   $('n1').onclick=()=>{state.list=[];state.loc='';$('loc').value='';save();$('confirmNew').innerHTML='';$('pick').innerHTML='';$('q').value='';$('results').innerHTML='';$('fallback').innerHTML='';render();toast('New list started')};
 };
+
+/* ---------- Breakout tab ---------- */
+let put=store.get('putlist',[]);
+const savePut=()=>store.set('putlist',put);
+function natKey(s){return String(s).toUpperCase().replace(/\d+/g,m=>m.padStart(6,'0'))}
+function showTab(n){
+  $('tab-pull').style.display=n===1?'':'none';
+  $('tab-break').style.display=n===2?'':'none';
+  $('mainbar').style.display=n===1?'':'none';
+  $('t1').className=n===1?'on':'';$('t2').className=n===2?'on':'';
+  store.set('tab',n);window.scrollTo(0,0);
+}
+$('t1').onclick=()=>showTab(1);$('t2').onclick=()=>showTab(2);
+function bsearch(){
+  const raw=$('bq').value.trim(),box=$('bres');
+  if(!raw){box.innerHTML='';return}
+  if(!ITEMS.length){box.innerHTML='<div class="sub">Loading item list...</div>';return}
+  const scored=find(raw),top=scored.slice(0,8);
+  if(!top.length){box.innerHTML='<div class="warn"><strong>No match found.</strong><div class="sub">Check the number on the box, or ask someone for this one.</div></div>';return}
+  box.innerHTML=top.map(([s,it],i)=>'<div class="res" data-i="'+i+'"><span class="imf">'+esc(it.imf)+'</span> '+esc(it.desc)+'<div>'+(it.loc?'<span class="loc">'+esc(it.loc)+'</span>':'<span class="loc none">No location listed</span>')+'</div>'+(it.mpn?'<div class="sub">Part # '+esc(it.mpn)+'</div>':'')+'</div>').join('')+(scored.length>8?'<div class="sub" style="margin-top:6px">'+scored.length+' matches. Keep typing to narrow it down.</div>':'');
+  box.querySelectorAll('.res').forEach(el=>el.onclick=()=>{
+    const it=top[+el.dataset.i][1];
+    if(put.some(x=>x.imf===it.imf)){toast('Already on the list')}
+    else{put.push({imf:it.imf,desc:it.desc,loc:it.loc});savePut();toast('Added to put-away list')}
+    $('bq').value='';box.innerHTML='';brender();$('bq').focus();
+  });
+}
+$('bq').addEventListener('input',bsearch);
+function sorted(){return put.slice().sort((a,b)=>{if(!a.loc&&b.loc)return 1;if(a.loc&&!b.loc)return -1;return natKey(a.loc)<natKey(b.loc)?-1:natKey(a.loc)>natKey(b.loc)?1:0})}
+function brender(){
+  const L=sorted();
+  $('bcount').textContent=L.length?L.length+' item'+(L.length>1?'s':''):'';
+  $('blist').innerHTML=L.length?L.map(x=>'<div class="brow"><div class="d" style="flex:1">'+(x.loc?'<span class="loc">'+esc(x.loc)+'</span>':'<span class="loc none">No location listed</span>')+'<div><span class="imf">'+esc(x.imf)+'</span> '+esc(x.desc)+'</div></div><button class="x" data-imf="'+esc(x.imf)+'" aria-label="Remove">✕</button></div>').join(''):'<div class="empty">Nothing yet.<br>Search above and tap an item to add it.</div>';
+  $('blist').querySelectorAll('.x').forEach(b=>b.onclick=()=>{put=put.filter(x=>x.imf!==b.dataset.imf);savePut();brender()});
+}
+async function bcopy(){
+  if(!put.length){toast('List is empty');return}
+  const t='Put-away list, '+today()+'\n\n'+sorted().map(x=>(x.loc||'NO LOCATION')+'  -  '+x.imf+' - '+x.desc).join('\n');
+  try{await navigator.clipboard.writeText(t);toast('Copied');$('bfallback').innerHTML=''}
+  catch(e){$('bfallback').innerHTML='<div class="sub" style="margin-top:8px">Copy didn\'t work here. Select this text and copy it:</div><textarea id="bta" readonly>'+esc(t)+'</textarea>';const ta=$('bta');ta.focus();ta.select()}
+}
+$('bcopy').onclick=bcopy;
+$('bclear').onclick=()=>{
+  if(!put.length){toast('Already empty');return}
+  $('bconfirm').innerHTML='<div class="warn" style="margin-top:8px">Clear the whole put-away list?<div class="row" style="margin-top:8px"><button class="sec" id="b0">Keep it</button><button class="bad" id="b1">Yes, clear</button></div></div>';
+  $('b0').onclick=()=>{$('bconfirm').innerHTML=''};
+  $('b1').onclick=()=>{put=[];savePut();$('bconfirm').innerHTML='';$('bfallback').innerHTML='';brender();toast('List cleared')};
+};
+brender();
+showTab(store.get('tab',1)===2?2:1);
 render();
 if("serviceWorker" in navigator){window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js").catch(()=>{}))}
 </script>
