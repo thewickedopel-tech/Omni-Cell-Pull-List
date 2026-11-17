@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Supply Pull List</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0b5cab">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Pull List">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="icon" href="icon-192.png">
+<style>
+:root{--bg:#f4f6f8;--card:#fff;--ink:#14202b;--mute:#5c6b78;--line:#d5dce2;--brand:#0b5cab;--ok:#1a7f4b;--bad:#b3261e;--warn:#fff4d6}
+*{box-sizing:border-box}
+body{margin:0;font:17px/1.35 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--ink);padding:12px 12px 90px;max-width:640px;margin:0 auto}
+h1{font-size:20px;margin:4px 0 10px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px;margin-bottom:12px}
+label{display:block;font-size:13px;font-weight:600;color:var(--mute);margin:0 0 4px}
+input[type=text],input[type=email],input[type=search],input[type=number],input:not([type]){width:100%;font-size:18px;padding:12px;border:1.5px solid var(--line);border-radius:10px;background:#fff;color:var(--ink)}
+input:focus{outline:3px solid #9cc6f0;border-color:var(--brand)}
+button{font:inherit;font-weight:600;border:0;border-radius:10px;padding:12px 16px;background:var(--brand);color:#fff;cursor:pointer}
+button.sec{background:#e6ecf1;color:var(--ink)}
+button.bad{background:var(--bad)}
+button:disabled{opacity:.45}
+.row{display:flex;gap:8px}.row>*{flex:1}
+.res{border:1px solid var(--line);border-radius:10px;padding:10px;margin-top:8px;cursor:pointer;background:#fff}
+.res:active{background:#eaf2fb}
+.imf{font-weight:700;color:var(--brand)}
+.sub{font-size:13px;color:var(--mute)}
+.pick{background:#eaf2fb;border:2px solid var(--brand);border-radius:12px;padding:10px;margin-top:8px}
+.warn{background:var(--warn);border:1px solid #e8cf80;border-radius:10px;padding:10px;margin-top:8px}
+.item{display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-top:1px solid var(--line)}
+.item:first-child{border-top:0}
+.qty{min-width:52px;text-align:center;font-weight:800;font-size:20px;background:#e8f5ee;color:var(--ok);border-radius:8px;padding:6px 4px}
+.item .d{flex:1}
+.x{background:#fbe9e7;color:var(--bad);padding:8px 12px}
+.tag{display:inline-block;font-size:11px;font-weight:700;background:#ffe3b3;color:#7a4b00;border-radius:6px;padding:1px 6px;margin-left:4px}
+.bar{position:fixed;left:0;right:0;bottom:0;background:#fff;border-top:1px solid var(--line);padding:10px 12px;display:flex;gap:8px;max-width:640px;margin:0 auto}
+.bar button{flex:1}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:84px;background:#14202b;color:#fff;padding:10px 16px;border-radius:20px;font-size:15px;display:none;z-index:9}
+textarea{width:100%;height:150px;font:14px monospace;padding:8px;border:1px solid var(--line);border-radius:8px}
+.empty{color:var(--mute);text-align:center;padding:14px 0}
+a.btnlink{display:block;text-align:center;text-decoration:none;font-weight:600;border-radius:10px;padding:12px;background:#e6ecf1;color:var(--ink)}
+</style>
+</head>
+<body>
+<h1>Supply Pull List</h1>
+
+<div class="card">
+  <label for="loc">Location (becomes the list title and email subject)</label>
+  <input id="loc" type="text" placeholder="e.g. 3 North Charlie" autocomplete="off" list="locs">
+  <datalist id="locs"></datalist>
+</div>
+
+<div class="card">
+  <label for="q">Search: IMF, description, part number, or vendor number</label>
+  <input id="q" type="search" placeholder="Type anything..." autocomplete="off" inputmode="search">
+  <div id="results"></div>
+  <div id="pick"></div>
+</div>
+
+<div class="card">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+    <strong id="listTitle">Pull list</strong><span class="sub" id="count"></span>
+  </div>
+  <div id="list"></div>
+</div>
+
+<div class="card">
+  <label for="to">Send to (remembers the last address)</label>
+  <input id="to" type="email" placeholder="name@example.com" autocomplete="email">
+  <div class="row" style="margin-top:8px">
+    <a class="btnlink" id="mail" href="#">Email list</a>
+    <button class="sec" id="copy">Copy list</button>
+  </div>
+  <div class="sub" id="mailnote" style="margin-top:6px"></div>
+  <div id="fallback"></div>
+</div>
+
+<div class="card"><button class="sec" id="newlist" style="width:100%">New List</button><div id="confirmNew"></div></div>
+
+<div class="bar"><button id="barcopy">Copy list</button><button class="sec" id="barmail">Email</button></div>
+<div class="toast" id="toast"></div>
+
+<script>
+let ITEMS=[];
+const $=id=>document.getElementById(id);
+const store={get(k,d){try{const v=localStorage.getItem(k);return v==null?d:JSON.parse(v)}catch(e){return d}},set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
+let state={loc:store.get('loc',''),to:store.get('to',''),list:store.get('list',[]),locs:store.get('locs',[])};
+const save=()=>{store.set('loc',state.loc);store.set('to',state.to);store.set('list',state.list);store.set('locs',state.locs)};
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const norm=s=>String(s).toLowerCase().replace(/[^a-z0-9 ]/g,' ').replace(/\s+/g,' ').trim();
+const compact=s=>String(s).toLowerCase().replace(/[^a-z0-9]/g,'');
+function toast(m){const t=$('toast');t.textContent=m;t.style.display='block';clearTimeout(toast.t);toast.t=setTimeout(()=>t.style.display='none',1800)}
+
+fetch('items.json').then(r=>r.json()).then(d=>{
+  ITEMS=d.map(r=>({imf:r[0],desc:r[1],mpn:r[2],vsn:r[3],nsn:r[4],
+    nd:norm(r[1]),keys:[compact(r[0]),compact(r[2]),compact(r[3]),compact(r[4])]}));
+  search();
+}).catch(()=>{$('results').innerHTML='<div class="warn">Could not load the item list. Check your connection and reload.</div>'});
+
+function today(){return new Date().toLocaleDateString('en-US',{month:'long',day:'numeric'})}
+function title(){return (state.loc.trim()||'(no location)')+', '+today()}
+
+function search(){
+  const raw=$('q').value.trim(); const box=$('results'); $('pick').innerHTML='';
+  if(!raw){box.innerHTML='';return}
+  if(!ITEMS.length){box.innerHTML='<div class="sub">Loading item list...</div>';return}
+  const words=norm(raw).split(' ').filter(Boolean), c=compact(raw);
+  const scored=[];
+  for(const it of ITEMS){
+    let s=0;
+    if(it.keys[0]===c) s=1000;
+    else if(c.length>=3&&it.keys.slice(1).some(k=>k===c)) s=900;
+    else if(c.length>=3&&it.keys.slice(1).some(k=>k&&k.includes(c))) s=500;
+    else if(/^\d+$/.test(raw)&&it.keys[0].startsWith(c)) s=400;
+    if(!s&&words.every(w=>it.nd.includes(w))) s=100+(it.nd.startsWith(words[0])?20:0)-it.nd.length/100;
+    if(s) scored.push([s,it]);
+  }
+  scored.sort((a,b)=>b[0]-a[0]);
+  const top=scored.slice(0,8);
+  if(!top.length){
+    box.innerHTML='<div class="warn"><strong>No match found.</strong><div class="sub">Check the number, or add it as a custom item.</div><button style="margin-top:8px" id="cust">Add as custom item</button></div>';
+    $('cust').onclick=()=>customForm(raw);return;
+  }
+  box.innerHTML=top.map(([s,it],i)=>'<div class="res" data-i="'+i+'"><span class="imf">'+esc(it.imf)+'</span> '+esc(it.desc)+(it.mpn?'<div class="sub">Part # '+esc(it.mpn)+(it.vsn&&it.vsn!==it.mpn?' · Vendor # '+esc(it.vsn):'')+'</div>':'')+'</div>').join('')+
+    (scored.length>8?'<div class="sub" style="margin-top:6px">'+scored.length+' matches. Keep typing to narrow it down.</div>':'')+
+    '<div style="margin-top:8px"><button class="sec" id="cust2">Not here? Add custom item</button></div>';
+  box.querySelectorAll('.res').forEach(el=>el.onclick=()=>pickItem(top[+el.dataset.i][1]));
+  $('cust2').onclick=()=>customForm(raw);
+}
+$('q').addEventListener('input',search);
+
+function pickItem(it){
+  $('results').innerHTML='';
+  const p=$('pick');
+  p.innerHTML='<div class="pick"><div><span class="imf">'+esc(it.imf)+'</span> '+esc(it.desc)+'</div><label style="margin-top:10px" for="qty">Quantity to pull</label><input id="qty" type="number" inputmode="numeric" min="1" step="1" placeholder="Enter quantity"><div class="row" style="margin-top:8px"><button class="sec" id="cancel">Cancel</button><button id="add">Add to list</button></div><div id="dupe"></div></div>';
+  $('qty').focus();
+  $('cancel').onclick=()=>{p.innerHTML=''};
+  const go=()=>{
+    const n=parseInt($('qty').value,10);
+    if(!n||n<1){$('qty').style.borderColor='var(--bad)';toast('Enter a quantity first');$('qty').focus();return}
+    const ex=state.list.find(x=>!x.custom&&x.imf===it.imf);
+    if(ex){
+      $('dupe').innerHTML='<div class="warn">Already on your list with a quantity of <strong>'+ex.qty+'</strong>. Add '+n+' more?<div class="row" style="margin-top:8px"><button class="sec" id="no">No</button><button id="yes">Yes, add more</button></div></div>';
+      $('no').onclick=()=>{p.innerHTML='';$('q').value='';search()};
+      $('yes').onclick=()=>{ex.qty+=n;done()};
+      return;
+    }
+    state.list.push({imf:it.imf,desc:it.desc,qty:n,custom:false});done();
+  };
+  $('add').onclick=go;
+  $('qty').addEventListener('keydown',e=>{if(e.key==='Enter')go()});
+  function done(){save();p.innerHTML='';$('q').value='';$('results').innerHTML='';render();toast('Added');$('q').focus()}
+}
+
+function customForm(text){
+  $('results').innerHTML='';
+  const p=$('pick');
+  p.innerHTML='<div class="pick"><strong>Custom item</strong> <span class="sub">(not in master list)</span><label style="margin-top:8px" for="cd">What it says on the shelf (description, part number...)</label><input id="cd" type="text" value="'+esc(text)+'"><label style="margin-top:8px" for="cq">Quantity to pull</label><input id="cq" type="number" inputmode="numeric" min="1" step="1" placeholder="Enter quantity"><div class="row" style="margin-top:8px"><button class="sec" id="cc">Cancel</button><button id="ca">Add to list</button></div></div>';
+  $('cq').focus();
+  $('cc').onclick=()=>{p.innerHTML=''};
+  $('ca').onclick=()=>{
+    const d=$('cd').value.trim(),n=parseInt($('cq').value,10);
+    if(!d){toast('Enter a description');return}
+    if(!n||n<1){toast('Enter a quantity first');return}
+    state.list.push({imf:'',desc:d,qty:n,custom:true});save();p.innerHTML='';$('q').value='';$('results').innerHTML='';render();toast('Added custom item');
+  };
+}
+
+function render(){
+  $('listTitle').textContent=title();
+  $('count').textContent=state.list.length?state.list.length+' item'+(state.list.length>1?'s':''):'';
+  const L=$('list');
+  if(!state.list.length){L.innerHTML='<div class="empty">Nothing on the list yet.<br>Search above to add items.</div>'}
+  else L.innerHTML=state.list.map((x,i)=>'<div class="item"><div class="qty">'+x.qty+'</div><div class="d">'+(x.custom?'<span class="tag">NOT IN MASTER LIST</span> ':'<span class="imf">'+esc(x.imf)+'</span> ')+esc(x.desc)+'</div><button class="x" data-i="'+i+'" aria-label="Delete">✕</button></div>').join('');
+  L.querySelectorAll('.x').forEach(b=>b.onclick=()=>{state.list.splice(+b.dataset.i,1);save();render()});
+  const to=state.to.trim(), subj=title(), body=text();
+  $('mail').href='mailto:'+encodeURIComponent(to)+'?subject='+encodeURIComponent(subj)+'&body='+encodeURIComponent(body);
+  $('mailnote').textContent=to?'Will open your mail app addressed to '+to+'.':'Type an address above, or leave blank to pick one in your mail app.';
+}
+function text(){
+  const lines=[state.loc.trim()||'(no location)',today(),''];
+  state.list.forEach(x=>lines.push(x.qty+' x '+(x.custom?'[NOT IN MASTER LIST] ':x.imf+' - ')+x.desc));
+  return lines.join('\n');
+}
+function needReady(){
+  if(!state.list.length){toast('List is empty');return false}
+  if(!state.loc.trim()){toast('Enter a location first');$('loc').focus();window.scrollTo(0,0);return false}
+  return true;
+}
+function rememberLoc(){const l=state.loc.trim();if(!l)return;state.locs=[l].concat(state.locs.filter(x=>x!==l)).slice(0,8);save();fillLocs()}
+function fillLocs(){$('locs').innerHTML=state.locs.map(l=>'<option value="'+esc(l)+'">').join('')}
+async function copy(){
+  if(!needReady())return;
+  rememberLoc();
+  const t=text();
+  try{await navigator.clipboard.writeText(t);toast('Copied. Paste it into a text or email.');$('fallback').innerHTML='';}
+  catch(e){$('fallback').innerHTML='<div class="sub" style="margin-top:8px">Copy didn\'t work here. Select this text and copy it:</div><textarea id="ta" readonly>'+esc(t)+'</textarea>';const ta=$('ta');ta.focus();ta.select()}
+}
+$('copy').onclick=copy;$('barcopy').onclick=copy;
+$('mail').onclick=e=>{if(!needReady())e.preventDefault();else rememberLoc()};
+$('barmail').onclick=()=>$('mail').click();
+$('loc').value=state.loc;$('to').value=state.to;fillLocs();
+$('loc').addEventListener('input',e=>{state.loc=e.target.value;save();render()});
+$('to').addEventListener('input',e=>{state.to=e.target.value;save();render()});
+$('newlist').onclick=()=>{
+  if(!state.list.length&&!state.loc){toast('Already empty');return}
+  $('confirmNew').innerHTML='<div class="warn" style="margin-top:8px">Clear the whole list and start fresh?<div class="row" style="margin-top:8px"><button class="sec" id="n0">Keep it</button><button class="bad" id="n1">Yes, clear</button></div></div>';
+  $('n0').onclick=()=>{$('confirmNew').innerHTML=''};
+  $('n1').onclick=()=>{state.list=[];state.loc='';$('loc').value='';save();$('confirmNew').innerHTML='';$('pick').innerHTML='';$('q').value='';$('results').innerHTML='';$('fallback').innerHTML='';render();toast('New list started')};
+};
+render();
+if("serviceWorker" in navigator){window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js").catch(()=>{}))}
+</script>
+</body>
+</html>
